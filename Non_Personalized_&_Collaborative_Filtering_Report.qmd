@@ -1,0 +1,605 @@
+---
+title: "Report & Code"
+format: html
+editor: visual
+---
+
+#### Names:
+
+Alex Narberhaus Piera
+
+Mayer Attie
+
+Alvaro Mengotti Medina
+
+Rodrigo García Vicente
+
+Julia Ruiz Fernández
+
+Tamer Elbenghazi
+
+Alejandro Diaz
+
+#### Needed Libraries To Run This Section!
+
+```{r}
+library(recommenderlab)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+```
+
+## Loading Data & Pre-processing
+
+The pipeline to clean our data set was not implemented in this notebook. For this section I am already using a clean version of the data set. We will be using a subset of the data, because of our limited computational power. Certain models trained later (e.g. IBCF) took a long time to train, which is why we decided to slice the data.
+
+##### This cell will load the data set from the selected directory, and create the user-item matrix so we can create our recommenders:
+
+```{r}
+user_ratings <- read.csv("C:/Users/alexn/Documents/Uni/semester 5/Recommendation Engines/Books_recommender/BX-Book-Ratings.csv", sep=";")
+
+user_ratings = user_ratings[user_ratings$Book.Rating != 0,]
+
+user_item <- user_ratings %>%
+  slice_sample(n = 5000) %>%
+  pivot_wider(names_from = ISBN, values_from = Book.Rating, values_fill = list(Book.Rating = 0)) %>%
+  as.data.frame()
+
+row.names(user_item) <- user_item$User.ID
+user_item$User.ID <- NULL
+
+user_item <- as.matrix(user_item)
+user_item_matrix <- as(user_item, 'realRatingMatrix')
+```
+
+# Creating Non-Personalized Models
+
+#### Evaluation Scheme
+
+We want to divide/split our data into training and test sets. After, we will be changing and plotting metrics at different values of 'k'.
+
+e \<- evaluationScheme(user_item_matrix, method = 'split', train = 0.9, k=1, given=5)
+
+```{r}
+e <- evaluationScheme(user_item_matrix, method = 'split', train = 0.9, k=1, given=5)
+```
+
+#### Popularity Recommender
+
+This step is used for the popularity recommendation approach. It extracts the training data from the evaluationscheme and builds recommendations based on popularity.
+
+```{r}
+r <- Recommender(getData(e, "train"), method = 'POPULAR')
+```
+
+#### Predictions
+
+```{r}
+a <- getData(e, "known")
+p <- predict(r, a, type= 'ratings')
+print(p)
+print(summary(getData(e, "unknown")))
+```
+
+#### Evaluate Model
+
+```{r}
+accuracy <- calcPredictionAccuracy(p, getData(e, "unknown"))
+accuracy
+```
+
+The popularity model appears to be good for the non-personalized approach since its error metrics are very close to 0.
+
+```{r}
+#Check the accuracy by user instead of a global one
+head(calcPredictionAccuracy(p, getData(e, "unknown"), byUser = TRUE))
+```
+
+## Combined Non-Personalized predictions
+
+We will be using 3 different models: popularity, random, and a combined model that takes into account he accuracy of both models. Then we will see which one performs best when making recommendations.
+
+```{r}
+# Generate recommendations using each method
+r_random <- Recommender(getData(e, "train"), method = "RANDOM")
+r_popular <- Recommender(getData(e, "train"), method = "POPULAR")
+
+# Make predictions for each method
+p_random <- predict(r_random,a,  type= 'ratings')
+p_popular <- predict(r_popular, a,  type= 'ratings')
+print(summary(p_random))
+print(summary(getData(e, "unknown")))
+```
+
+```{r}
+# Evaluate accuracy for each model
+accuracy_random <- calcPredictionAccuracy(p_random, getData(e, "unknown"))
+accuracy_popular <- calcPredictionAccuracy(p_popular, getData(e, "unknown"))
+
+# Print accuracy metrics (e.g., RMSE, MSE, MAE)
+accuracy_random
+accuracy_popular
+```
+
+```{r}
+# Combine predictions (simple averaging of predictions)
+combined_pred <- (as(p_random, "matrix") + as(p_popular, "matrix"))/2
+
+# Evaluate the hybrid model
+accuracy_combined <- calcPredictionAccuracy(as(combined_pred, "realRatingMatrix"), getData(e, "unknown"))
+
+accuracy_combined
+```
+
+Looking th the results, we can see that the popular model has the best accuracy, better than the random or the combined, since its values are the closest to 0. The combined performs better than the random but the popularity model is significantly better.
+
+```{r}
+results <- data.frame(
+  Method = c("Random", "Popular", "Combined"),
+  RMSE = c(accuracy_random["RMSE"], accuracy_popular["RMSE"], accuracy_combined["RMSE"])
+)
+  
+results
+```
+
+## Previous Issues:
+
+We aimed to enhance the popular recommendation system by suggesting popular books based on a user's age group. The objective was to recommend the most popular books tailored to each specific age group.
+
+However, when working with the `recommenderlab` package, we encountered issues with certain age groups. For some groups, there wasn't enough data to generate predictions, leading to the model failing to make recommendations for those users age group. This issue became particularly evident during the evaluation process. Specifically, when calculating accuracy metrics (such as RMSE, MSE, or MAE) on the test set, the results returned "NaN" due to insufficient user reviews or ratings in some age groups, making it impossible to make predictions and evaluate the model's performance for those groups.
+
+In order to solve this issue we decided to create a model from scratch and manually aggregate the most popular books in terms of both highest rating and highest review count for the different group ages.
+
+## Load Data
+
+The section before this one uses the book ratings table of our data set. The following section will make use of the data set with all tables joined. For this reason, we will load a new df.
+
+```{r}
+df_full <- read.csv("C:/Users/alexn/Documents/Uni/semester 5/Recommendation Engines/Books_recommender/df_full.csv")
+```
+
+## Data Preparation
+
+```{r}
+summary(df_full)
+```
+
+We will select only the variables that we need (user_id, age, isbn, rating, book_title)
+
+```{r}
+dfull <- df_full %>% select(user_id, age, isbn, rating, book_title)
+summary(dfull)
+```
+
+Removing the 0 rating value
+
+```{r}
+glimpse(dfull)
+```
+
+```{r}
+table(dfull$rating)
+```
+
+As you can see we have many 0 ratings, we will remove them.
+
+filter(rating \> 0)
+
+```{r}
+df_full_filtered <- dfull %>% 
+
+```
+
+```{r}
+df_full_filtered %>% summary()
+```
+
+```{r}
+table(df_full_filtered$rating)
+```
+
+Now we don't have any 0 values on our rating variable. Let's create the popular books recommender.
+
+## Popular Book Recomender
+
+### Create Age Groups
+
+The first step involves transforming the age variable into age groups. This allows us to aggregate ratings for users within broader age categories rather than individual ages, improving the robustness of our analysis. In order to create groups appropriately we need to inspect the age distribution.
+
+```{r}
+df_full_filtered$age %>% summary()
+```
+
+With this information we can create adequate groups. We will create groups from 13-19, 20-29, 30-39, 40-49, 50-59, 60+.
+
+```{r}
+df_pop <- df_full_filtered %>%
+  mutate(age_group = case_when(
+    age >= 13 & age < 20 ~ "13-19",
+    age >= 20 & age < 30 ~ "20-29",
+    age >= 30 & age < 40 ~ "30-39",
+    age >= 40 & age < 50 ~ "40-49",
+    age >= 50 & age < 60 ~ "50-59",
+    age >= 60 ~ "60+",
+    TRUE ~ "Unknown"
+  ))
+```
+
+As you can see apart from the age groups we took care of any age that doesn't fit any of these categories and labeled as 'Unknown'.
+
+### Grouping by Age Groups and Book Titles
+
+Now that we have created the groups we need to aggregate the ratings for each book within these age categories. We will group by both `book_title` and `age_group` so we can calculate the popularity of each book within each age group.
+
+```{r}
+df_pop <- df_pop %>% 
+  group_by(book_title, age_group) %>% 
+  summarise(
+    avg_rating = mean(rating, na.rm = TRUE), 
+    rating_count = n(),
+    .groups = "drop" # Explicitly drop grouping
+  )
+```
+
+### Sorting Them by Popularity
+
+In order to enhance our book recommendation system, we want to sort the books in two different ways:
+
+-   By Best Average Rating: This will prioritize books with the highest average ratings, regardless of how many ratings they have received. The assumption here is that high average ratings indicate that users who have rated the book are very satisfied with it.
+
+-   By Rating Count: This will prioritize books with the most ratings, regardless of their average rating. This helps highlight books that have been widely read, which might suggest their popularity.
+
+#### Sort By Average Rating
+
+```{r}
+df_pop_avg_rating <- df_pop %>% 
+  group_by(age_group) %>% 
+  arrange(desc(avg_rating), desc(rating_count)) %>% 
+  slice_head(n = 10) # At least 10 books per age_group
+```
+
+Display results
+
+```{r}
+print("Top 10 Books by Average Rating per Age Group:")
+print(df_pop_avg_rating)
+```
+
+#### Sort By Rating Count
+
+```{r}
+df_pop_rating_count <- df_pop %>%
+  group_by(age_group) %>% 
+  arrange(desc(rating_count), desc(avg_rating)) %>% 
+  slice_head(n = 10) # At least 10 books per age_group
+```
+
+Display results
+
+```{r}
+print("Top 10 Books by Rating Count per Age Group:")
+print(df_pop_rating_count)
+```
+
+## Evaluation
+
+After many hours trying to find a method that allowed us to evaluate the model we couldn't find anything that worked.
+
+## Conclusion
+
+The books "The Lovely Bones: A Novel", "The Da Vinci Code", and "Harry Potter and the Sorcerer's Stone" appear as the top popular 3 books overall without grouping (base popular method), but their popularity varies across age groups in terms of rating count and average rating.
+
+### Age Group Specific Book Popularity (avg_rating: , total ratings: )
+
+13-19 Group:
+
+-   The Lovely Bones: A Novel (8.48, 29)
+
+-   The Da Vinci Code doesn't appear
+
+-   Harry Potter and the Sorcerer's Stone (Harry Potter (Paperback)) (8.640000, 25)
+
+20-29 Group:
+
+-   The Lovely Bones: A Novel (8.179487, 117)
+
+-   The Da Vinci Code 20-29 (8.38000, 100)
+
+-   Harry Potter and the Sorcerer's Stone (Harry Potter (Paperback)) (9.100000, 80)
+
+30-39 Group:
+
+-   The Lovely Bones: A Novel (8.156863, 357 )
+
+-   The Da Vinci Code (8.428571, 224)
+
+-   Harry Potter doesn't appear
+
+40-49 Group:
+
+-   The Lovely Bones: A Novel (8.353535, 99 )
+
+-   The Da Vinci Code (8.529412, 68)
+
+-   Harry Potter doesn't appear
+
+50-59 Group:
+
+-   The Lovely Bones: A Novel (8.041667, 48)
+
+-   The Da Vinci Code (8.45901, 61)
+
+-   Harry Potter doesn't appear
+
+60+ Group:
+
+-   The Lovely Bones: A Novel (8.125000, 16)
+
+-   The Da Vinci Code (8.347826, 23)
+
+-   Harry Potter doesn't appear
+
+By grouping users by age and analyzing the rating count and average ratings, you are able to make personalized, targeted recommendations that consider specific preferences and engagement patterns. This helps refine your book suggestions and provides tailored content that resonates with different age demographics, enhancing the user experience and increasing engagement across your platform.
+
+Furthermore, understanding which books are trending among certain age groups gives you valuable insights into market demand and can help with creating more personalized and relevant content, refining your recommendation algorithms, and optimizing book marketing strategies.
+
+### Actions
+
+-   Targeted Recommendations:
+
+    -   Tailor recommendations for each group based on rating count and avg rating. For example:
+
+        -   13-19: Recommend "Harry Potter and the Sorcerer's Stone" due to its high rating and decent number of reviews
+
+        -   The absence of Harry Potter in older groups suggest that its not relevant to those age groups, it would be best to target younger audiences.
+
+-   Understanding Purchasing and Engagement Patterns:
+
+    -   Books that are popular in younger age groups (e.g., Harry Potter in 13-29) may reflect a trendier selection for younger readers, while books like "The Da Vinci Code" are enduring across age groups and could be recommended more universally.
+    -   Older age groups (40+) are more engaged with classic or widely recognized titles ("The Lovely Bones", "The Da Vinci Code") rather than newer, more niche titles, highlighting preferences for classic literature and mystery/thriller genres.
+
+-   Refining Book Suggestions:
+
+    -   By segmenting books based on both rating count and age group preferences, you can refine your suggestions. Books with a high rating count (e.g., "The Lovely Bones", "The Da Vinci Code") and solid average ratings should be recommended across multiple age groups, while less known books or those with lower engagement can be further explored or promoted to specific demographics.
+
+-   Trends and Targeted Campaigns:
+
+    -   This analysis can help you identify trends in reading preferences, allowing you to market certain books to specific age groups. For example, promoting books like "Harry Potter" for teenagers or young adults, while books like "The Da Vinci Code" could be marketed as "classics" for older readers.
+
+    -   Targeted marketing campaigns can also be designed around these insights to boost book visibility within the right audience. You can emphasize trending books in specific age groups to improve engagement with your platform.
+
+# Creating A Collaborative Filtering Recommender For Amazon Books
+
+#### Setting up evaluation scheme:
+
+This cell sets up an evaluation scheme for the recommendation system by splitting the dataset into training (90%) and test sets (10%). It defines 15 items as known for each user in the test set and treats ratings of 5 or higher as "good." The training data is used for model fitting, while the test set is divided into "known" (input for predictions) and "unknown" (ground truth for evaluation) data to assess the model's performance.
+
+```{r}
+e <- evaluationScheme(user_item_matrix, 
+                      method = "split", 
+                      train = 0.9,   # 90% for training
+                      k = 1,         # single split for train/test
+                      given = 15,    # use 15 items as known
+                      goodRating = 5) # define good rating as >= 5
+
+
+train_data <- getData(e, "train")
+
+test_known_data <- getData(e, "known")
+test_unknown_data <- getData(e, "unknown")
+```
+
+## Let's Create Our CF Models
+
+In this section, we will develop three recommendation models: UBCF (User-Based Collaborative Filtering), IBCF (Item-Based Collaborative Filtering), and a Hybrid model. To ensure optimal performance, we will conduct hyper-parameter tuning to identify the best number of neighbors/items and the most suitable similarity metric for each model, maximizing their ability to identify similar users or items. The Hybrid model will combine the strengths of the optimized UBCF and IBCF approaches. Finally, we will evaluate and compare the performance of all three models using appropriate evaluation metrics.
+
+#### Hyper-parameter tuning User Based CF
+
+This function will optimize the UBCF model by testing different values for the number of factors (k) and similarity metrics (cosine, pearson, jaccard). For each combination, we train the model, make predictions, and evaluate its accuracy. The results are saved in a data frame, and the best parameters are chosen based on the lowest RMSE.
+
+```{r}
+similarity_metrics <- c("cosine", "pearson", "jaccard")
+nn_values <- c(5, 10, 20, 50, 100)
+
+# we'll create a data frame to be able to store and display the optimal parameters
+ubcf_results <- data.frame(nn = integer(), sim = character(), RMSE = numeric(), MAE = numeric())
+
+# grid search
+for (sim in similarity_metrics) {
+  for (nn in nn_values) {
+    # here we are training the ubcf model
+    r_ubcf <- Recommender(getData(e, "train"), 
+                          method = "UBCF", 
+                          parameter = list(method = sim, nn = nn))
+    
+    # here we are doing predictions with the model
+    p_ubcf <- predict(r_ubcf, getData(e, "known"), type = "ratings")
+    
+    # here we are evaluating accuracy
+    acc <- calcPredictionAccuracy(p_ubcf, getData(e, "unknown"))
+    
+    # finally we'll store the results here
+    ubcf_results <- rbind(ubcf_results, data.frame(nn = nn, sim = sim, RMSE = acc["RMSE"], MAE = acc["MAE"]))
+  }
+}
+
+best_ubcf <- ubcf_results[which.min(ubcf_results$RMSE), ]
+print(best_ubcf)
+```
+
+The UBCF grid search shows that the best setup is using **100 neighbors** with **cosine similarity**. This gave the lowest error, with an RMSE of 0.152 and an MAE of 0.009, meaning it makes the most accurate predictions.
+
+#### Hyper-parameter tuning Item Based CF
+
+This function is the exact same as the on above, we just changed the model from UBCF to IBCF.
+
+```{r}
+similarity_metrics <- c("cosine", "pearson", "jaccard")
+k_values <- c(5, 10, 20, 50, 100)
+
+# we'll create a data frame to be able to store and display the optimal parameters
+ibcf_results <- data.frame(k = integer(), sim = character(), RMSE = numeric(), MAE = numeric())
+
+# grid search
+for (sim in similarity_metrics) {
+  for (k in k_values) {
+    # here we are training the ibcf model
+    r_ibcf <- Recommender(getData(e, "train"), 
+                          method = "IBCF", 
+                          parameter = list(method = sim, k = k))
+    
+    # here we are doing predictions with the model
+    p_ibcf <- predict(r_ibcf, getData(e, "known"), type = "ratings")
+    
+    # here we are evaluating accuracy
+    acc <- calcPredictionAccuracy(p_ibcf, getData(e, "unknown"))
+    
+    # finally we'll store the results here
+    ibcf_results <- rbind(ibcf_results, data.frame(k = k, sim = sim, RMSE = acc["RMSE"], MAE = acc["MAE"]))
+  }
+}
+
+best_ibcf <- ibcf_results[which.min(ibcf_results$RMSE), ]
+print(best_ibcf)
+```
+
+The IBCF grid search shows that the best setup is using **10 neighbors** with **Jaccard similarity**. This gave the lowest error, with an RMSE of 0.128 and an MAE of 0.002, meaning it makes the most accurate predictions.
+
+#### Implement Hybrid Model & Training Models
+
+In this cell, we train the final versions of the UBCF and IBCF models using the best parameters found earlier. Then, we generate predictions for both models. Afterward, the predictions are converted into matrices for easier manipulation. To create the Hybrid model, we take a weighted average of the UBCF and IBCF predictions (with equal weights in this case). Finally, the hybrid predictions are converted back into the required format for further evaluation.
+
+```{r}
+# here we are training our final ubcf model with the optimal parameters
+r_ubcf_final <- Recommender(getData(e, "train"), 
+                            method = "UBCF", 
+                            parameter = list(method = best_ubcf$sim, nn = best_ubcf$nn))
+
+# same here but for the ibcf
+r_ibcf_final <- Recommender(getData(e, "train"), 
+                            method = "IBCF", 
+                            parameter = list(method = best_ibcf$sim, k = best_ibcf$k))
+
+# let us generate and store the predictions here
+p_ubcf_final <- predict(r_ubcf_final, getData(e, "known"), type = "ratings")
+p_ibcf_final <- predict(r_ibcf_final, getData(e, "known"), type = "ratings")
+
+# and here we are converting them into matrices for the hybrid
+mat_ubcf <- as(p_ubcf_final, "matrix")
+mat_ibcf <- as(p_ibcf_final, "matrix")
+
+# hybrid predictions by getting a weighted average 
+hybrid_weights <- c(0.5, 0.5) # we left the weights 50/50 for now 
+mat_hybrid <- hybrid_weights[1] * mat_ubcf + hybrid_weights[2] * mat_ibcf
+
+# Finally lets convert the hybrid predictions back to "realRatingMatrix"
+p_hybrid <- as(mat_hybrid, "realRatingMatrix")
+```
+
+## Comparing & Evaluating Our Models
+
+In this section, we compare the UBCF, IBCF, and Hybrid models by looking at different performance metrics. We check the accuracy using RMSE and MAE, and evaluate how well the models perform in recommending relevant items with Precision, Recall, and F1 Score. We also look at coverage (how many users/items get recommendations) and diversity (how varied the recommendations are). To make it clearer, we use some visualizations to highlight the differences between the models and see which one works best.
+
+#### Comparing Models With RMSE & MAE
+
+```{r}
+# accuracy UBCF model
+accuracy_ubcf_final <- calcPredictionAccuracy(p_ubcf_final, getData(e, "unknown"))
+
+# accuracy IBCF model
+accuracy_ibcf_final <- calcPredictionAccuracy(p_ibcf_final, getData(e, "unknown"))
+
+# accuracy Hybrid model
+accuracy_hybrid <- calcPredictionAccuracy(p_hybrid, getData(e, "unknown"))
+
+# Compile results into a table
+comparison <- data.frame(
+  Model = c("UBCF", "IBCF", "Hybrid"),
+  RMSE = c(accuracy_ubcf_final["RMSE"], accuracy_ibcf_final["RMSE"], accuracy_hybrid["RMSE"]),
+  MAE = c(accuracy_ubcf_final["MAE"], accuracy_ibcf_final["MAE"], accuracy_hybrid["MAE"])
+)
+print(comparison)
+```
+
+The results show that the **IBCF model** performed the best in terms of accuracy, with the lowest RMSE of **0.128** and MAE of **0.002**. This means that the IBCF model made the most accurate predictions overall. The **Hybrid model** is very close behind with an RMSE of **0.128** and MAE of **0.004**, which is also a good result, but it is slightly less accurate than the IBCF model. On the other hand, the **UBCF model** has a higher RMSE of **0.152** and MAE of **0.009**, which indicates that it wasn’t as accurate as the IBCF and Hybrid models. So, the IBCF model seems to be the best in terms of accuracy, followed closely by the Hybrid model.
+
+#### Why RMSE and MAE
+
+RMSE and MAE are good metrics for evaluating recommendation models because they both measure prediction accuracy in different ways. RMSE gives more importance to larger errors, which helps highlight models that make big mistakes. MAE, on the other hand, gives a straightforward average of all errors, showing how consistent the predictions are. By using both, we get a better overall picture of how well the models perform and how accurate their recommendations are.
+
+#### Let's Visualize our findings to easily be able to compare MAE and MSE
+
+```{r}
+# this line is reshaping the data so we can plot it
+comparison_long <- reshape2::melt(comparison, id.vars = "Model", variable.name = "Metric", value.name = "Value")
+
+# here we are using ggplot to plot RMSE as blue and MAE as orange
+ggplot(comparison_long, aes(x = Model, y = Value, fill = Metric)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Model Performance Comparison", y = "Error", x = "Model") +
+  theme_minimal() +
+  scale_fill_manual(values = c("RMSE" = "steelblue", "MAE" = "darkorange"))
+
+```
+
+As already explained before the IBCF has the lowest error metrics, meaning it is performing the best, closely followed by the Hybrid model.
+
+#### Evaluating Precision, Recall and F1
+
+We decided not to check for precision, recall, and F1 scores in this analysis because we have a regression problem. So calculating these metrics would not have provided meaningful results. Instead, we focused on metrics like **RMSE** and **MAE**, which give us a better idea of how accurate the predictions are without needing actual ratings for every item.
+
+#### Let's Analyze the Coverage and Diversity
+
+#### Why coverage and diversity?
+
+We also looked at **coverage** and **diversity** because they give us a better idea of how well the recommendation system works for different users and items. **Coverage** shows how many users or items actually get recommendations. If the coverage is high, it means the model is making suggestions for a wider range of users and items. **Diversity** looks at how different the recommendations are. If all the suggestions are too similar, it might not be very interesting or helpful for the user. By considering both coverage and diversity, we can make sure the model is not only accurate but also useful and varied.
+
+#### Coverage:
+
+```{r}
+# this measures the percentage of users/items with recommendations
+coverage_ubcf <- sum(!is.na(as(p_ubcf_final, "matrix"))) / (dim(user_item)[1] * dim(user_item)[2])
+coverage_ibcf <- sum(!is.na(as(p_ibcf_final, "matrix"))) / (dim(user_item)[1] * dim(user_item)[2])
+coverage_hybrid <- sum(!is.na(mat_hybrid)) / (dim(user_item)[1] * dim(user_item)[2])
+
+coverage_results <- data.frame(
+  Model = c("UBCF", "IBCF", "Hybrid"),
+  Coverage = c(coverage_ubcf, coverage_ibcf, coverage_hybrid)
+)
+print(coverage_results)
+```
+
+The coverage metric shows the percentage of unique items recommended across all users. UBCF achieved the highest coverage at 10%, indicating it recommends a more diverse range of books. In contrast, IBCF and the Hybrid model had much lower coverage at 0.4%, suggesting they focus on a narrower selection of items. This highlights UBCF’s strength in promoting variety, while IBCF and the Hybrid model may need adjustments to improve diversity without sacrificing accuracy.
+
+This will most likely impact the diversity results because with such low coverage in the IBCF and Hybrid models, they are recommending a very small set of items, which are probably quite similar to each other. As a result, these models show lower diversity. On the other hand, UBCF, with its higher coverage, is recommending a wider variety of items, which leads to a higher diversity score. So, the limited coverage in IBCF and Hybrid is probably the reason for their lower diversity results.
+
+#### Diversity:
+
+```{r}
+# we are using Jaccard similarity of recommendations
+diversity_ubcf <- mean(as.dist(1 - proxy::simil(mat_ubcf, method = "Jaccard")))
+diversity_ibcf <- mean(as.dist(1 - proxy::simil(mat_ibcf, method = "Jaccard")))
+diversity_hybrid <- mean(as.dist(1 - proxy::simil(mat_hybrid, method = "Jaccard")))
+
+diversity_results <- data.frame(
+  Model = c("UBCF", "IBCF", "Hybrid"),
+  Diversity = c(diversity_ubcf, diversity_ibcf, diversity_hybrid)
+)
+print(diversity_results)
+```
+
+The diversity results show that the **UBCF model** has a diversity score of **1**, meaning it gives a good variety of recommendations. This is probably because it covers more items overall. However, the **IBCF** and **Hybrid models** show **NA** for diversity, which is likely because they have very low coverage, recommending only a small set of items. This makes it hard to measure diversity for those models. So, the UBCF model seems to perform better in terms of diversity, while the IBCF and Hybrid models don't offer as much variety in their recommendations.
+
+## Final Result & Conclusion
+
+### Conclusion
+
+After comparing three recommendation models (User-Based Collaborative Filtering (UBCF), Item-Based Collaborative Filtering (IBCF), and a Hybrid model) we found the **IBCF model** to perform best.
+
+The **IBCF model** was the best in terms of accuracy, with the lowest RMSE and MAE, meaning it gave the most accurate predictions. The **Hybrid model** was close behind, but just a little less accurate. The **UBCF model** had higher RMSE and MAE, which means it wasn't as accurate as IBCF and Hybrid, but it still worked well overall.
+
+We didn’t check precision, recall, and F1 scores because most of the recommended items weren’t rated by users. Without enough ratings for comparison, these metrics wouldn’t be helpful. So, we focused on RMSE and MAE to evaluate how well the models predicted ratings.
+
+When looking at **coverage** and **diversity**, **UBCF** had the highest coverage, recommending a wider variety of items. This also made its recommendations more diverse. On the other hand, **IBCF** and the **Hybrid model** had much lower coverage and recommended fewer items, so their diversity was lower.
+
+In summary, **IBCF** gave the best predictions, but **UBCF** was better at recommending a wider range of items. The **Hybrid model** was a mix of both, offering decent accuracy, but with lower diversity and coverage. Depending on what we care about—accuracy, variety, or how many users get recommendations—each model has its own strengths and weaknesses.
